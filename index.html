@@ -167,6 +167,16 @@
   .people button:hover{background:var(--sunken);}
   .people i{width:12px;height:12px;border-radius:50%;display:block;}
   .linkbtn{background:none;border:none;padding:14px 0 0;color:var(--blue);font-size:13px;cursor:pointer;}
+  .mgr{margin-top:24px;border-top:1px solid var(--hairline);padding-top:18px;}
+  .mgr h3{margin:0 0 12px;font-size:13px;font-weight:500;color:var(--text2);}
+  .prow{display:flex;align-items:center;gap:11px;padding:9px 0;}
+  .prow i{width:12px;height:12px;border-radius:50%;display:block;flex:none;}
+  .prow .nm2{flex:1;font-size:14.5px;}
+  .prow .nm2 small{color:var(--text3);font-size:12px;margin-left:6px;}
+  .del{border:1px solid var(--hairline);background:#fff;border-radius:999px;padding:5px 13px;font-size:12.5px;color:var(--text2);cursor:pointer;}
+  .del:hover{background:var(--red-soft);border-color:#F6C7C2;color:var(--red);}
+  .del.armed{background:var(--red);border-color:var(--red);color:#fff;}
+  .del.armed:hover{background:#C5221F;color:#fff;}
 
   @media (max-width:640px){
     body{padding:14px 12px 44px;}
@@ -253,7 +263,8 @@ function colorOf(name){const t=S.teachers.filter(function(x){return x.name===nam
 function periodLabel(p){return /^\d+$/.test(p)?p+'교시':p;}
 
 async function api(params){
-  const res=await fetch(API_URL+'?'+new URLSearchParams(params).toString(),{method:'GET'});
+  const q=Object.assign({},params,{_:Date.now()+'-'+Math.random().toString(36).slice(2,7)});
+  const res=await fetch(API_URL+'?'+new URLSearchParams(q).toString(),{method:'GET',cache:'no-store'});
   return await res.json();
 }
 function setLive(mode,text){
@@ -352,8 +363,9 @@ function screenColor(name,isChange){
 
 function screenMe(){
   const card=$('card');
-  card.innerHTML='<div class="step">내 설정</div><h2>'+S.me+' 선생님</h2>'+
+  card.innerHTML='<div class="step">설정</div><h2>'+S.me+' 선생님</h2>'+
     '<p>색을 바꾸거나, 다른 선생님으로 전환할 수 있습니다.</p>';
+
   const row=document.createElement('div');row.className='row';
   const close=document.createElement('button');
   close.className='btn ghost';close.type='button';close.textContent='닫기';close.onclick=closeVeil;
@@ -361,10 +373,55 @@ function screenMe(){
   cc.className='btn';cc.type='button';cc.textContent='색 바꾸기';
   cc.onclick=function(){screenColor(S.me,true);};
   row.appendChild(close);row.appendChild(cc);card.appendChild(row);
+
   const sw=document.createElement('button');
   sw.className='linkbtn';sw.type='button';sw.textContent='다른 사람으로 전환';
   sw.onclick=function(){screenWelcome();};
   card.appendChild(sw);
+
+  const mgr=document.createElement('div');mgr.className='mgr';
+  mgr.innerHTML='<h3>등록된 선생님</h3>';
+  S.teachers.forEach(function(t){
+    const p=document.createElement('div');p.className='prow';
+    p.innerHTML='<i style="background:'+t.color+'"></i>'+
+      '<span class="nm2">'+t.name+(t.name===S.me?' <small>나</small>':'')+'</span>';
+    const del=document.createElement('button');
+    del.className='del';del.type='button';del.textContent='삭제';
+    let armed=false;let timer=null;
+    del.onclick=async function(){
+      if(!armed){
+        armed=true;del.classList.add('armed');del.textContent='정말 삭제';
+        timer=setTimeout(function(){armed=false;del.classList.remove('armed');del.textContent='삭제';},3500);
+        return;
+      }
+      clearTimeout(timer);
+      del.disabled=true;del.textContent='삭제 중';
+      try{
+        const r=await api({action:'removeTeacher',name:t.name});
+        if(!r.ok){toast(r.error||'삭제하지 못했습니다.');del.disabled=false;del.textContent='삭제';return;}
+        S.teachers=r.teachers||[];
+        toast(t.name+' 선생님을 지웠습니다'+(r.removed?' (예정된 예약 '+r.removed+'건 포함)':''));
+        if(t.name===S.me){
+          S.me=null;store.set('lab.me','');
+          $('meName').textContent='이름 등록';
+          $('meBtn').style.setProperty('--dot','#80868B');
+          render();refresh();screenWelcome();
+        }else{
+          render();refresh();screenMe();
+        }
+      }catch(e){
+        toast('연결이 끊겼습니다. 다시 시도해 주세요.');
+        del.disabled=false;del.textContent='삭제';
+      }
+    };
+    p.appendChild(del);mgr.appendChild(p);
+  });
+  const note=document.createElement('p');
+  note.style.cssText='margin:10px 0 0;font-size:12px;';
+  note.textContent='삭제하면 오늘 이후의 예약도 함께 비워집니다. 지난 기록은 시트에 남습니다.';
+  mgr.appendChild(note);
+  card.appendChild(mgr);
+
   $('veil').hidden=false;
 }
 
