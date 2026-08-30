@@ -181,16 +181,33 @@
   .del.armed:hover{background:#C5221F;color:#fff;}
 
   @media (max-width:640px){
-    body{padding:14px 12px 44px;}
-    .daytabs{display:flex;}
+    body{padding:14px 10px 44px;}
+    .daytabs{display:none;}
     .brand h1{font-size:17px;}
-    .title{font-size:15px;}
-    .cell{min-height:52px;}
-    .hd .dt{font-size:15px;width:30px;height:30px;line-height:30px;}
+    .title{font-size:14px;margin-left:2px;}
+    .title em{font-size:12px;margin-left:5px;}
+    .bar{gap:6px;}
+    .pill,.seg button{padding:6px 12px;font-size:12.5px;}
+    .grid{gap:3px;--rail:36px;}
+    .hd{padding:0 0 8px;}
+    .hd .dow{font-size:10.5px;}
+    .hd .dt{font-size:13.5px;width:27px;height:27px;line-height:27px;margin-top:3px;}
+    .rail{font-size:11.5px;}
+    .rail.after{font-size:9px;letter-spacing:-.04em;}
+    .cell{min-height:44px;padding:3px 1px;border-radius:6px;}
+    .cell .nm{font-size:11px;letter-spacing:-.03em;}
+    .cell.mine::after{top:4px;right:4px;width:4px;height:4px;}
     .mday{min-height:64px;padding:4px;gap:3px;}
     .mday .n{font-size:11.5px;width:21px;height:21px;line-height:21px;}
     .chip2{font-size:9px;padding:2px 3px;min-width:13px;}
     .month{gap:3px;}
+    .legend{gap:12px;font-size:12px;}
+  }
+  @media (max-width:380px){
+    .grid{--rail:30px;gap:2px;}
+    .cell .nm{font-size:10px;}
+    .rail{font-size:10.5px;}
+    .rail.after{font-size:8px;}
   }
 </style>
 </head>
@@ -449,18 +466,7 @@ function renderTitle(){
 }
 
 function renderTabs(){
-  const box=$('daytabs');box.innerHTML='';
-  if(S.view!=='week'){box.style.display='none';return;}
-  box.style.display='';
-  const a=weekStart();
-  DOW.forEach(function(d,i){
-    const date=addDays(a,i);
-    const b=document.createElement('button');b.type='button';
-    b.setAttribute('aria-pressed',String(i===S.selDay));
-    b.innerHTML=d+'<span class="d">'+(date.getMonth()+1)+'/'+date.getDate()+'</span>';
-    b.onclick=function(){S.selDay=i;render();};
-    box.appendChild(b);
-  });
+  $('daytabs').style.display='none';
 }
 
 function renderLegend(){
@@ -477,7 +483,7 @@ function renderLegend(){
 
 function renderWeek(){
   const grid=$('grid');
-  const days=isNarrow()?[S.selDay]:[0,1,2,3,4];
+  const days=[0,1,2,3,4];
   const a=weekStart(),today=todayYmd();
   grid.style.gridTemplateColumns='var(--rail) repeat('+days.length+',minmax(0,1fr))';
   grid.innerHTML='';
