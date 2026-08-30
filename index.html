@@ -162,6 +162,8 @@
   .btn[disabled]{opacity:.4;cursor:not-allowed;}
   .btn.ghost{background:#fff;color:var(--blue);border-color:var(--hairline);}
   .btn.ghost:hover{background:var(--blue-soft);}
+  .btn.danger{background:var(--red);border-color:var(--red);}
+  .btn.danger:hover{background:#C5221F;}
   .people{display:flex;flex-direction:column;gap:8px;}
   .people button{border:1px solid var(--hairline);background:#fff;border-radius:8px;padding:13px 14px;font-size:14.5px;text-align:left;cursor:pointer;display:flex;align-items:center;gap:11px;}
   .people button:hover{background:var(--sunken);}
@@ -248,7 +250,7 @@ const store={_m:{},get(k){try{return localStorage.getItem(k);}catch(e){return th
 const S={
   me:null,teachers:[],periods:[],allowCrossCancel:false,
   view:'week',cursor:null,items:new Map(),selDay:0,
-  confirmKey:null,confirmTimer:null,ready:false
+  pending:new Map(),ready:false
 };
 
 const $=function(id){return document.getElementById(id);};
@@ -505,7 +507,6 @@ function renderWeek(){
         c.setAttribute('aria-label',periodLabel(p)+' 비어 있음');
       }
       if(past)c.classList.add('past');
-      if(S.confirmKey===k){c.classList.add('confirm');c.innerHTML='<span class="nm">취소할까요?</span>';}
       c.onclick=function(){onCell(date,p,owner,past);};
       grid.appendChild(c);
     });
@@ -558,7 +559,26 @@ function flash(k){
 }
 
 /* ── 동작 ── */
-function clearConfirm(){clearTimeout(S.confirmTimer);S.confirmKey=null;}
+function clearConfirm(){}
+
+function markPending(k,val){ S.pending.set(k,{val:val,at:Date.now()}); }
+
+function askCancel(date,period,owner){
+  const d=new Date(date+'T00:00:00');
+  const card=$('card');
+  card.innerHTML='<h2>예약을 취소할까요?</h2>'+
+    '<p>'+(d.getMonth()+1)+'월 '+d.getDate()+'일 '+DOW7[(d.getDay()+6)%7]+'요일 · '+
+    periodLabel(period)+'<br>'+owner+' 선생님</p>';
+  const row=document.createElement('div');row.className='row';
+  const no=document.createElement('button');
+  no.className='btn ghost';no.type='button';no.textContent='아니요';no.onclick=closeVeil;
+  const yes=document.createElement('button');
+  yes.className='btn danger';yes.type='button';yes.textContent='예, 취소합니다';
+  yes.onclick=function(){ closeVeil(); doCancel(date,period,keyOf(date,period)); };
+  row.appendChild(no);row.appendChild(yes);card.appendChild(row);
+  $('veil').hidden=false;
+  setTimeout(function(){yes.focus();},60);
+}
 
 function onCell(date,period,owner,past){
   if(!S.me){screenWelcome();return;}
@@ -567,30 +587,29 @@ function onCell(date,period,owner,past){
   if(!owner){doBook(date,period,k);return;}
   const canCancel=S.allowCrossCancel||owner===S.me;
   if(!canCancel){toast(owner+' 선생님의 예약입니다.');return;}
-  if(S.confirmKey===k){clearConfirm();doCancel(date,period,k);return;}
-  clearConfirm();S.confirmKey=k;render();
-  S.confirmTimer=setTimeout(function(){S.confirmKey=null;render();},3500);
+  askCancel(date,period,owner);
 }
 
 async function doBook(date,period,k){
-  S.items.set(k,S.me);render();
+  S.items.set(k,S.me);markPending(k,S.me);render();
   try{
     const r=await api({action:'book',date:date,period:period,teacher:S.me});
     if(!r.ok){
+      S.pending.delete(k);
       if(r.by)S.items.set(k,r.by);else S.items.delete(k);
       render();toast(r.error||'예약하지 못했습니다.');
     }
-  }catch(e){S.items.delete(k);render();toast('연결이 끊겼습니다. 다시 시도해 주세요.');}
+  }catch(e){S.pending.delete(k);S.items.delete(k);render();toast('연결이 끊겼습니다. 다시 시도해 주세요.');}
   refresh();
 }
 
 async function doCancel(date,period,k){
   const prev=S.items.get(k);
-  S.items.delete(k);render();
+  S.items.delete(k);markPending(k,null);render();
   try{
     const r=await api({action:'cancel',date:date,period:period,teacher:S.me});
-    if(!r.ok){S.items.set(k,prev);render();toast(r.error||'취소하지 못했습니다.');}
-  }catch(e){S.items.set(k,prev);render();toast('연결이 끊겼습니다. 다시 시도해 주세요.');}
+    if(!r.ok){S.pending.delete(k);S.items.set(k,prev);render();toast(r.error||'취소하지 못했습니다.');}
+  }catch(e){S.pending.delete(k);S.items.set(k,prev);render();toast('연결이 끊겼습니다. 다시 시도해 주세요.');}
   refresh();
 }
 
@@ -613,8 +632,14 @@ async function refresh(){
     if(r.ok){
       const next=new Map();
       r.items.forEach(function(it){next.set(keyOf(it.date,String(it.period)),it.teacher);});
+      const t=Date.now();
+      S.pending.forEach(function(p,k){
+        const server=next.get(k)||null;
+        if(server===p.val||t-p.at>6000){S.pending.delete(k);return;}
+        if(p.val===null)next.delete(k);else next.set(k,p.val);
+      });
       const fresh=[];
-      next.forEach(function(v,k){if(S.items.get(k)!==v&&v!==S.me)fresh.push(k);});
+      next.forEach(function(v,k){if(S.items.get(k)!==v&&v!==S.me&&!S.pending.has(k))fresh.push(k);});
       S.items=next;
       if(r.teachers)S.teachers=r.teachers;
       render();fresh.forEach(flash);
@@ -645,7 +670,7 @@ async function boot(){
   if(saved&&S.teachers.some(function(t){return t.name===saved;}))setMe(saved);
   else{render();screenWelcome();}
   await refresh();
-  setInterval(function(){if(!document.hidden)refresh();},5000);
+  setInterval(function(){if(!document.hidden)refresh();},2000);
   document.addEventListener('visibilitychange',function(){if(!document.hidden)refresh();});
   window.addEventListener('resize',render);
 }
