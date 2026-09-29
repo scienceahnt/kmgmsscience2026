@@ -1,7 +1,10 @@
 # 과학실 예약
 
 과학실 1개를 여러 교사가 나눠 쓸 때, 교시를 눌러 미리 예약하는 웹앱입니다.
-예약 데이터는 구글 시트에 쌓이고, 화면은 2초마다 갱신됩니다.
+예약 데이터는 구글 시트에 쌓이고, 화면은 15초마다 갱신됩니다. (간격은 `index.html` 위쪽 `POLL_MS` 에서 바꿀 수 있습니다)
+
+교내 와이파이에서 안 열리면 아래 도메인이 학교망에서 차단된 것입니다. 정보 담당자에게 접속 허용을 요청하세요.
+`script.google.com`, `script.googleusercontent.com`, `scienceahnt.github.io`, `fonts.googleapis.com`, `fonts.gstatic.com`
 
 ## 파일
 
