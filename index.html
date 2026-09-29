@@ -117,6 +117,8 @@
   .cell.past:hover{background:#fff;border-color:#EDEFF1;}
   .cell.past.taken{background:var(--c);opacity:.3;}
   .cell.pulse{animation:pulse 1.2s ease-out 2;}
+  .grid.is-loading .cell{pointer-events:none;animation:loadfade 1.1s ease-in-out infinite alternate;}
+  @keyframes loadfade{from{opacity:1;}to{opacity:.45;}}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(26,115,232,.45);}100%{box-shadow:0 0 0 10px rgba(26,115,232,0);}}
 
   /* 월간 달력 */
@@ -273,6 +275,9 @@
 <script>
 const API_URL = "https://script.google.com/macros/s/AKfycbyBfTjlqESXl-6gDEaLtTnYCKXd4pbK_XGLbBGjeXB2li8udMtmfwCcHC2bBdGyoP3BzQ/exec";
 
+// 다른 선생님 예약을 다시 받아오는 간격 (밀리초). 15000 = 15초
+const POLL_MS = 15000;
+
 const DOW = ['월','화','수','목','금'];
 const DOW7 = ['월','화','수','목','금','토','일'];
 const PALETTE = [
@@ -285,7 +290,7 @@ const PALETTE = [
 const store={_m:{},get(k){try{return localStorage.getItem(k);}catch(e){return this._m[k]||null;}},set(k,v){try{localStorage.setItem(k,v);}catch(e){this._m[k]=v;}}};
 
 const S={
-  me:null,teachers:[],periods:[],allowCrossCancel:false,
+  me:null,teachers:[],periods:['1','2','3','4','5','6','7','방과후'],allowCrossCancel:false,
   view:'week',cursor:null,items:new Map(),selDay:0,
   pending:new Map(),ready:false
 };
@@ -569,7 +574,7 @@ function renderMonth(){
 }
 
 function render(){
-  if(!S.ready)return;
+  $('grid').classList.toggle('is-loading',!S.ready);
   renderTitle();renderTabs();renderLegend();
   $('segWeek').setAttribute('aria-pressed',String(S.view==='week'));
   $('segMonth').setAttribute('aria-pressed',String(S.view==='month'));
@@ -607,6 +612,7 @@ function askCancel(date,period,owner){
 }
 
 function onCell(date,period,owner,past){
+  if(!S.ready){toast('예약 현황을 불러오는 중입니다.');return;}
   if(!S.me){screenWelcome();return;}
   if(past){toast('지난 날짜는 예약할 수 없습니다.');return;}
   const k=keyOf(date,period);
@@ -650,27 +656,31 @@ function fetchRange(){
 }
 
 let busy=false;
+/** 서버에서 받은 예약 목록을 화면 상태에 반영합니다. */
+function applyList(r){
+  const next=new Map();
+  r.items.forEach(function(it){next.set(keyOf(it.date,String(it.period)),it.teacher);});
+  const t=Date.now();
+  S.pending.forEach(function(p,k){
+    const server=next.get(k)||null;
+    if(server===p.val||t-p.at>6000){S.pending.delete(k);return;}
+    if(p.val===null)next.delete(k);else next.set(k,p.val);
+  });
+  const fresh=[];
+  if(S.items.size||S.loaded){
+    next.forEach(function(v,k){if(S.items.get(k)!==v&&v!==S.me&&!S.pending.has(k))fresh.push(k);});
+  }
+  S.items=next;S.loaded=true;
+  if(r.teachers)S.teachers=r.teachers;
+  render();fresh.forEach(flash);
+}
 async function refresh(){
-  if(busy)return;busy=true;
+  if(busy||!S.ready)return;busy=true;
   setLive('sync','동기화 중');
   try{
     const r=await api(Object.assign({action:'list'},fetchRange()));
-    if(r.ok){
-      const next=new Map();
-      r.items.forEach(function(it){next.set(keyOf(it.date,String(it.period)),it.teacher);});
-      const t=Date.now();
-      S.pending.forEach(function(p,k){
-        const server=next.get(k)||null;
-        if(server===p.val||t-p.at>6000){S.pending.delete(k);return;}
-        if(p.val===null)next.delete(k);else next.set(k,p.val);
-      });
-      const fresh=[];
-      next.forEach(function(v,k){if(S.items.get(k)!==v&&v!==S.me&&!S.pending.has(k))fresh.push(k);});
-      S.items=next;
-      if(r.teachers)S.teachers=r.teachers;
-      render();fresh.forEach(flash);
-      setLive('ok','실시간');
-    }else setLive('down','오류');
+    if(r.ok){applyList(r);setLive('ok','실시간');}
+    else setLive('down','오류');
   }catch(e){setLive('down','연결 끊김');}
   busy=false;
 }
@@ -680,8 +690,10 @@ async function boot(){
   const now=new Date();
   S.cursor=new Date(now);
   S.selDay=Math.min((now.getDay()+6)%7,4);
+  render(); // 서버 응답을 기다리는 동안 빈 시간표를 먼저 보여 줍니다.
+  let info;
   try{
-    const info=await api({action:'init'});
+    info=await api(Object.assign({action:'init'},fetchRange()));
     if(!info.ok)throw new Error(info.error);
     S.periods=info.periods.map(String);
     S.allowCrossCancel=!!info.allowCrossCancel;
@@ -689,14 +701,15 @@ async function boot(){
     S.ready=true;
   }catch(e){
     setLive('down','연결 실패');
-    toast('서버에 연결하지 못했습니다. 배포 권한을 확인해 주세요.');
+    toast('서버에 연결하지 못했습니다. 학교 와이파이라면 LTE로 시도해 보세요.');
     return;
   }
   const saved=store.get('lab.me');
   if(saved&&S.teachers.some(function(t){return t.name===saved;}))setMe(saved);
   else{render();screenWelcome();}
-  await refresh();
-  setInterval(function(){if(!document.hidden)refresh();},2000);
+  if(info.items){applyList(info);setLive('ok','실시간');}
+  else await refresh(); // 서버가 아직 예전 버전이면 따로 받아옵니다.
+  setInterval(function(){if(!document.hidden)refresh();},POLL_MS);
   document.addEventListener('visibilitychange',function(){if(!document.hidden)refresh();});
   window.addEventListener('resize',render);
 }
